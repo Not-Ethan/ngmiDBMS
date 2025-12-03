@@ -1,0 +1,38 @@
+John Doe
+Software Engineer
+john.doe@email.com | (555) 123-4567
+
+EXPERIENCE
+Software Developer at TechStart (2022-2024)
+- Developed web applications using Python, Django, and PostgreSQL
+- Built REST APIs serving 10k+ daily requests
+- Implemented CI/CD pipelines with Docker and AWS
+- Collaborated with cross-functional teams using Agile methodologies
+
+Junior Developer at WebCorp (2021-2022)
+- Created responsive websites with HTML, CSS, JavaScript, and React
+- Optimized database queries reducing load times by 40%
+- Participated in code reviews and maintained Git workflows
+
+EDUCATION
+Bachelor of Science in Computer Science
+State University (2017-2021)
+GPA: 3.7/4.0
+
+SKILLS
+Programming Languages: Python, JavaScript, TypeScript, Java, SQL
+Frameworks: Django, Flask, React, Node.js, Spring Boot
+Databases: PostgreSQL, MySQL, MongoDB, Redis
+Tools: Git, Docker, Kubernetes, AWS, Jenkins, Linux
+Other: REST APIs, GraphQL, Microservices, Agile, TDD
+
+PROJECTS
+E-commerce Platform (2023)
+- Full-stack web application with Django backend and React frontend
+- Integrated Stripe payments and email notifications
+- Deployed on AWS with auto-scaling and load balancing
+
+Task Management API (2022)
+- RESTful API built with Flask and PostgreSQL
+- JWT authentication and role-based permissions
+- Comprehensive test suite with 95% code coverage
