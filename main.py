@@ -1,5 +1,5 @@
 from src.database import db
-from src.cli import run_cli
+from src.cli.cli import run_cli
 
 def main():
     try:
