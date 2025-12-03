@@ -38,6 +38,17 @@ class LLMDriver:
 
         return response["structured_response"].skills
     
+    def extract_job_details(self, job_description: str):
+        prompt = self.prompt_manager.get_job_description_details_prompt(
+            job_description=job_description
+        )
+
+        response = self.recommendation_agent.invoke(
+            {"messages": [{"role": "user", "content": prompt}]}
+        )
+
+        return response["structured_response"]
+    
     async def get_feedback_async(self, scoring_rubric: str, resume_text: str, job_description: str):
         prompt = self.prompt_manager.get_feedback_prompt(
             scoring_rubric=scoring_rubric,
@@ -49,5 +60,7 @@ class LLMDriver:
             {"messages": [{"role": "user", "content": prompt}]}
         )
         return response["structured_response"]
+    
+
     
     

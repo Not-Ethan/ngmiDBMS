@@ -17,6 +17,7 @@ class ModelNames(StrEnum):
     GPT_o3_MINI = "o3-mini"
     GPT_o4_MINI = "o4-mini"
     GPT_4_1 = "gpt-4.1-2025-04-14"
+    GPT_5 = "gpt-5-2025-08-07"
 
 class LLMProvider:
     OPENAI = "openai"

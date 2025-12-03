@@ -18,7 +18,7 @@ class UI:
 ╚═╝    ╚═╝  ╚═════╝  ╚═╝     ╚═╝ ╚═╝
 """, style="bold magenta")
 
-        subtitle = Text("         ngmiDBMS — Not Gonna Make It Database System", style="bold white")
+        subtitle = Text("ngmiDBMS — Not Gonna Make It Database System", style="bold white")
 
         console.print(banner_text)
         console.print(subtitle)
@@ -48,3 +48,22 @@ class UI:
     @staticmethod
     def panel(title: str, body: str):
         console.print(Panel(body, title=title, border_style="magenta"))
+
+
+    @staticmethod
+    def warning(msg: str):
+        console.print(f"[bold yellow]⚠ {msg}[/]")
+
+    @staticmethod
+    def status_panel(title: str, items: dict):
+        """Display system status in a formatted panel"""
+        content = ""
+        for key, (status, style) in items.items():
+            content += f"[bold white]{key}:[/] [{style}]{status}[/]\n"
+        
+        console.print(Panel(content.strip(), title=title, border_style="cyan"))
+
+    @staticmethod
+    def connection_retry(attempt: int, max_attempts: int):
+        console.print(f"[yellow]Retrying connection... ({attempt}/{max_attempts})[/]")
+

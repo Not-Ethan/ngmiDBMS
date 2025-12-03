@@ -1,8 +1,14 @@
 from src.cli.ui.cli_ui import UI, console
 from src.cli.ui.spinner import loading
 from src.services.auth_service import register_user, login_user, get_current_user, logout_user
-from src.services.resume_service.resume_service import ResumeService
-from src.services.job_service import list_jobs, get_job_details, apply_to_job, get_user_applications, get_ngmi_history
+from src.services.resume_service.resume_service import ResumeService, ResumeUploadError
+from src.services.job_service.job_service import list_jobs, get_job_details, delete_application, delete_job, apply_to_job, get_user_applications, get_ngmi_history, JobApplicationError
+from src.database import DatabaseConnectionError
+from src.services.job_service.job_service import add_job_from_url
+from src.services.job_service.job_parser import JobParseError
+
+import sys
+import os
 
 resume_service = ResumeService()
 
@@ -37,11 +43,28 @@ def cmd_login():
     password = UI.prompt("Password")
 
     try:
+        # Check database connection first
+        from src.database import db
+        if not db.health_check():
+            UI.error("Database connection unavailable. Please try again later.")
+            return
+            
         user = login_user(email, password)
         UI.success(f"Welcome back, {user['full_name']}!")
+        
+    except DatabaseConnectionError as e:
+        UI.error("Database connection lost. Attempting to reconnect...")
+        try:
+            db.connect()
+            user = login_user(email, password)
+            UI.success(f"Welcome back, {user['full_name']}!")
+        except Exception as retry_e:
+            UI.error(f"Connection recovery failed: {str(retry_e)}")
+            
     except ValueError as e:
         UI.error(str(e))
-
+    except Exception as e:
+        UI.error(f"Login failed: {str(e)}")
 
 def cmd_logout():
     logout_user()
@@ -55,10 +78,19 @@ def cmd_upload_resume():
     UI.section("Upload Resume")
     file_path = UI.prompt("PDF Resume Path")
 
+    file_path = file_path.strip("'\"")  # Remove quotes
+    file_path = os.path.expanduser(file_path)  # Handle ~
+    file_path = os.path.abspath(file_path)
+
     try:
+        # Validate path exists before processing
+        if not os.path.exists(file_path):
+            UI.error("File not found. Please check the path and try again.")
+            return
+            
         user = get_current_user()
 
-        with loading("Extracting and parsing resume...", spinner="dots"):
+        with loading("Validating and processing resume...", spinner="dots"):
             resume_id = resume_service.upload_resume(user["user_id"], file_path)
 
         resume = ResumeService.get_resume_details(resume_id)
@@ -67,11 +99,17 @@ def cmd_upload_resume():
         UI.panel(
             "Resume Upload Complete",
             f"[bold white]Resume ID:[/] {resume_id}\n"
-            f"[bold white]Detected Skills:[/] {skills}"
+            f"[bold white]File:[/] {resume['file_name']}\n"
+            f"[bold white]Detected Skills:[/] {skills or 'None detected'}"
         )
 
+    except ResumeUploadError as e:
+        UI.error(f"Upload failed: {str(e)}")
+    except DatabaseConnectionError:
+        UI.error("Database connection lost. Please try again.")
     except Exception as e:
-        UI.error(str(e))
+        UI.error(f"Unexpected error: {str(e)}")
+
 
 
 @require_login
@@ -118,6 +156,27 @@ def cmd_view_resume():
 
 # JOBS ---------------------------------------------------------------------
 
+@require_login
+def cmd_delete_resume():
+    resume_id = UI.prompt("Resume ID to delete")
+    try:
+        user = get_current_user()
+        ResumeService.delete_resume(user["user_id"], int(resume_id))
+        UI.success("Resume deleted successfully")
+    except Exception as e:
+        UI.error(str(e))
+
+@require_login
+def cmd_delete_job():
+    job_id = UI.prompt("Job ID to delete")
+    try:
+        delete_job(int(job_id))
+        UI.success("Job deleted successfully")
+    except Exception as e:
+        UI.error(str(e))
+
+
+
 def cmd_list_jobs():
     jobs = list_jobs()
 
@@ -131,7 +190,6 @@ def cmd_list_jobs():
         table.add_row(str(j["job_id"]), j["title"], j["company"])
 
     console.print(table)
-
 
 def cmd_view_job():
     job_id = UI.prompt("Job ID")
@@ -150,6 +208,31 @@ def cmd_view_job():
     except Exception as e:
         UI.error(str(e))
 
+@require_login
+def cmd_add_job_url():
+    UI.section("Add Job from URL")
+    url = UI.prompt("Job Posting URL")
+    
+    try:
+        with loading("Extracting job details from URL...", spinner="dots"):
+            job_id = add_job_from_url(url)
+        
+        job = get_job_details(job_id)
+        UI.panel(
+            "Job Added Successfully",
+            f"[bold white]ID:[/] {job_id}\n"
+            f"[bold white]Title:[/] {job['title']}\n"
+            f"[bold white]Company:[/] {job['company']}\n"
+            f"[bold white]Description:[/] {job['description'][:200]}..."
+        )
+        
+    except JobParseError as e:
+        UI.error(f"Failed to extract job: {str(e)}")
+    except ValueError as e:
+        UI.error(str(e))
+    except Exception as e:
+        UI.error(f"Unexpected error: {str(e)}")
+
 
 # APPLICATIONS ------------------------------------------------------------
 
@@ -157,25 +240,41 @@ def cmd_view_job():
 def cmd_apply():
     UI.section("Apply to Job")
 
-    job_id = UI.prompt("Job ID")
-    resume_id = UI.prompt("Resume ID")
-
     try:
+        job_id = UI.prompt("Job ID")
+        resume_id = UI.prompt("Resume ID")
+        
+        # Validate inputs
+        try:
+            job_id = int(job_id)
+            resume_id = int(resume_id)
+        except ValueError:
+            UI.error("Job ID and Resume ID must be numbers")
+            return
+
         user = get_current_user()
 
-        with loading("Processing NGMI evaluation...", spinner="dots"):
-            app_id = apply_to_job(user["user_id"], int(job_id), int(resume_id))
+        with loading("Processing application and NGMI evaluation...", spinner="dots"):
+            app_id = apply_to_job(user["user_id"], job_id, resume_id)
 
-        ngmi = get_ngmi_history(app_id)
+        try:
+            ngmi = get_ngmi_history(app_id)
+            UI.panel(
+                "Application Submitted",
+                f"[bold]Application ID:[/] {app_id}\n"
+                f"[bold]NGMI Score:[/] {ngmi.get('ngmi_score', 'Pending')}\n"
+                f"[bold]Comment:[/] {ngmi.get('ngmi_comment', 'Processing...')}"
+            )
+        except:
+            UI.success(f"Application submitted successfully (ID: {app_id})")
+            UI.info("NGMI evaluation may still be processing")
 
-        UI.panel(
-            "Application Submitted",
-            f"[bold]NGMI Score:[/] {ngmi['ngmi_score']}\n"
-            f"[bold]Comment:[/] {ngmi['ngmi_comment']}"
-        )
-
-    except Exception as e:
+    except JobApplicationError as e:
         UI.error(str(e))
+    except DatabaseConnectionError:
+        UI.error("Database connection lost. Please try again.")
+    except Exception as e:
+        UI.error(f"Application failed: {str(e)}")
 
 
 @require_login
@@ -226,8 +325,14 @@ def cmd_help():
         'my_applications': 'View your job applications',
         'ngmi_history': 'View NGMI details for an application',
         'help': 'Show this help message',
-        'exit': 'Exit ngmiDBMS'
+        'exit': 'Exit ngmiDBMS',
+        'add_job_url': 'Add a job posting from a URL',
+        'delete_job': 'Delete a job posting',
+        'delete_resume': 'Delete a resume',
+        'delete_application': 'Delete a job application',
+        'status': 'Check system status',
     }
+
 
     for cmd, desc in commands.items():
         table.add_row(cmd, desc)
@@ -259,6 +364,40 @@ def cmd_ngmi_history():
     except Exception as e:
         UI.error(str(e))
 
+def cmd_status():
+    UI.section("System Status")
+    
+    from src.database import db
+    
+    # Check database connection
+    if db.health_check():
+        UI.success("Database connection: OK")
+    else:
+        UI.error("Database connection: FAILED")
+        UI.info("Attempting to reconnect...")
+        try:
+            db.connect()
+            UI.success("Database reconnection: OK")
+        except Exception as e:
+            UI.error(f"Database reconnection failed: {str(e)}")
+    
+    # Check current user session
+    user = get_current_user()
+    if user:
+        UI.success(f"User session: {user['email']}")
+    else:
+        UI.info("User session: Not logged in")
+
+@require_login
+def cmd_delete_application():
+    app_id = UI.prompt("Application ID to delete")
+    try:
+        user = get_current_user()
+        delete_application(user["user_id"], int(app_id))
+        UI.success("Application deleted successfully")
+    except Exception as e:
+        UI.error(str(e))
+
 
 def run_cli():
     UI.banner()
@@ -277,6 +416,11 @@ def run_cli():
         'my_applications': cmd_my_applications,
         'ngmi_history': cmd_ngmi_history,
         'help': cmd_help,
+        'status': cmd_status,  # New command to check system status
+        'add_job_url': cmd_add_job_url,
+        'delete_resume': cmd_delete_resume,
+        'delete_job': cmd_delete_job,
+        'delete_application': cmd_delete_application,
     }
 
     while True:
@@ -292,12 +436,17 @@ def run_cli():
             if cmd in commands:
                 commands[cmd]()
             else:
-                UI.error(f"Unknown command '{cmd}'")
+                UI.error(f"Unknown command '{cmd}'. Type 'help' for available commands.")
 
         except KeyboardInterrupt:
             console.print()
             UI.info("Exiting...")
             break
-
+            
+        except DatabaseConnectionError as e:
+            UI.error(f"Database connection issue: {str(e)}")
+            UI.info("Try the 'status' command to check system health")
+            
         except Exception as e:
-            UI.error(str(e))
+            UI.error(f"Unexpected error: {str(e)}")
+            UI.info("If this persists, please restart the application")

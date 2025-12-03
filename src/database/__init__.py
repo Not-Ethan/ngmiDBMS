@@ -1,45 +1,50 @@
 import os
 from dotenv import load_dotenv
-import psycopg
-from psycopg.rows import dict_row
 
 load_dotenv()
 
 
+class DatabaseConnectionError(Exception):
+    """Custom exception for database connection issues"""
+    pass
+
 class Database:
     def __init__(self):
         self.conn = None
+        self.max_retries = 3
+        self.retry_delay = 1
         self.connect()
 
     def connect(self):
         try:
-            self.conn = psycopg.connect(
-                host=os.getenv("DB_HOST", "localhost"),
-                dbname=os.getenv("DB_NAME", "ngmidbms"),
-                user=os.getenv("DB_USER", "postgres"),
-                password=os.getenv("DB_PASSWORD", "password"),
-                port=os.getenv("DB_PORT", "5432"),
-                row_factory=dict_row,
-                autocommit=True,
+            self.conn = psycopg2.connect(
+                host=os.getenv('DB_HOST', 'localhost'),
+                database=os.getenv('DB_NAME', 'ngmidbms'),
+                user=os.getenv('DB_USER', 'postgres'),
+                password=os.getenv('DB_PASSWORD', 'password'),
+                port=os.getenv('DB_PORT', '5432')
             )
+            self.conn.autocommit = True
         except Exception as e:
             print(f"Database connection failed: {e}")
             raise
-
+    
     def execute(self, query, params=None):
-        with self.conn.cursor() as cur:
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(query, params)
-            if cur.description:
+            try:
                 return cur.fetchall()
-            return None
-
+            except:
+                return None
+    
     def execute_one(self, query, params=None):
-        with self.conn.cursor() as cur:
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(query, params)
-            if cur.description:
+            try:
                 return cur.fetchone()
-            return None
-
+            except:
+                return None
+    
     def setup_tables(self):
         queries = [
             """CREATE TABLE IF NOT EXISTS Users (
