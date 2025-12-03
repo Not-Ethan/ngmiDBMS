@@ -1,6 +1,5 @@
 import os
 from typing import Dict, List, Tuple
-
 import dash
 import dash_cytoscape as cyto
 from dash import Dash, Input, Output, State, dash_table, dcc, html, no_update
