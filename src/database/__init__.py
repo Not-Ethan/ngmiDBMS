@@ -1,12 +1,13 @@
-import os
-from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import os
+from dotenv import load_dotenv
+import time
+from typing import Optional, List, Dict, Any
+
 load_dotenv()
 
-
 class DatabaseConnectionError(Exception):
-    """Custom exception for database connection issues"""
     pass
 
 class Database:
@@ -15,36 +16,89 @@ class Database:
         self.max_retries = 3
         self.retry_delay = 1
         self.connect()
-
+    
     def connect(self):
+        for attempt in range(self.max_retries):
+            try:
+                if self.conn:
+                    self.conn.close()
+                
+                self.conn = psycopg2.connect(
+                    host=os.getenv('DB_HOST', 'localhost'),
+                    database=os.getenv('DB_NAME', 'ngmidbms'),
+                    user=os.getenv('DB_USER', 'postgres'),
+                    password=os.getenv('DB_PASSWORD', 'password'),
+                    port=os.getenv('DB_PORT', '5432'),
+                    connect_timeout=10
+                )
+                self.conn.autocommit = True
+                return
+                
+            except psycopg2.OperationalError as e:
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
+                    continue
+                raise DatabaseConnectionError(f"Failed to connect after {self.max_retries} attempts: {str(e)}")
+            except Exception as e:
+                raise DatabaseConnectionError(f"Database connection failed: {str(e)}")
+    
+    def _ensure_connection(self):
         try:
-            self.conn = psycopg2.connect(
-                host=os.getenv('DB_HOST', 'localhost'),
-                database=os.getenv('DB_NAME', 'ngmidbms'),
-                user=os.getenv('DB_USER', 'postgres'),
-                password=os.getenv('DB_PASSWORD', 'password'),
-                port=os.getenv('DB_PORT', '5432')
-            )
-            self.conn.autocommit = True
-        except Exception as e:
-            print(f"Database connection failed: {e}")
-            raise
+            if not self.conn or self.conn.closed:
+                self.connect()
+                return
+            
+            # Test connection with a simple query
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            self.connect()
     
-    def execute(self, query, params=None):
-        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(query, params)
+    def execute(self, query: str, params: Optional[tuple] = None) -> Optional[List[Dict[str, Any]]]:
+        for attempt in range(self.max_retries):
             try:
-                return cur.fetchall()
-            except:
-                return None
+                self._ensure_connection()
+                with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, params)
+                    try:
+                        return cur.fetchall()
+                    except psycopg2.ProgrammingError:
+                        return None
+                        
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
+                    continue
+                raise DatabaseConnectionError(f"Query execution failed: {str(e)}")
+            except Exception as e:
+                raise DatabaseConnectionError(f"Database error: {str(e)}")
     
-    def execute_one(self, query, params=None):
-        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(query, params)
+    def execute_one(self, query: str, params: Optional[tuple] = None) -> Optional[Dict[str, Any]]:
+        for attempt in range(self.max_retries):
             try:
-                return cur.fetchone()
-            except:
-                return None
+                self._ensure_connection()
+                with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, params)
+                    try:
+                        return cur.fetchone()
+                    except psycopg2.ProgrammingError:
+                        return None
+                        
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
+                    continue
+                raise DatabaseConnectionError(f"Query execution failed: {str(e)}")
+            except Exception as e:
+                raise DatabaseConnectionError(f"Database error: {str(e)}")
+    
+    def health_check(self) -> bool:
+        try:
+            self._ensure_connection()
+            return True
+        except:
+            return False
     
     def setup_tables(self):
         queries = [
