@@ -187,3 +187,5 @@ cython_debug/
 node_modules/
 ui/frontend/node_modules/
 ui/frontend/.vite/
+
+uploads/
